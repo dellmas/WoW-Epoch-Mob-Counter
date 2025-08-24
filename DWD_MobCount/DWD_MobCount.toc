@@ -6,5 +6,4 @@
 ## X-License: MIT
 ## SavedVariablesPerCharacter: DWD_MobCountDB
 
-Locales\enUS.lua
 DWD_MobCount.lua
