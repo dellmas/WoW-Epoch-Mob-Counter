@@ -1,4 +1,6 @@
 -- DWD_MobCount.lua (Wrath 3.3.5a / Project Epoch)
+-- MIT License — Copyright (c) 2025 dellmas
+-- See LICENSE file in this repository for full text.
 -- Tracks YOUR kills per NPC ID (fallback to name). Tooltip shows "Killed: #".
 -- Commands: /mobcount [config|clear|debug]
 
