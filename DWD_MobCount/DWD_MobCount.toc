@@ -1,0 +1,10 @@
+## Interface: 30300
+## Title: DWD MobCount
+## Notes: Simple mob kill counter display in tooltip.
+## Author: dellmas
+## Version: 0.1.0
+## X-License: MIT
+## SavedVariablesPerCharacter: DWD_MobCountDB
+
+Locales\enUS.lua
+DWD_MobCount.lua
