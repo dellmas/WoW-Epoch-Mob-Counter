@@ -1,5 +1,5 @@
 # WoW-Epoch-Mob-Counter
-Simple mob kill counter display in tooltip
+Simple mob kill counter display in tooltip. Coded for Project Epoch private server.
 
 -- Commands: /mobcount [config|clear|debug]
 
