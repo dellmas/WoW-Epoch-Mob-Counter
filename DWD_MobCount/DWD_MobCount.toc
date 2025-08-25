@@ -2,9 +2,9 @@
 ## Title: DWD MobCount
 ## Notes: Simple mob kill counter display in tooltip.
 ## Author: dellmas
-## Version: 0.2.0
+## Version: 0.3.0
 ## X-License: MIT
-## SavedVariables: DWD_MobCountBackup
+## SavedVariables: DWD_MobCountBackup, DWD_MobCountLastClear
 ## SavedVariablesPerCharacter: DWD_MobCountDB
 
 Locales\enUS.lua
