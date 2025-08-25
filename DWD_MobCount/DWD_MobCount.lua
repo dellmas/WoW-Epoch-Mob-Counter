@@ -1,12 +1,13 @@
 -- DWD_MobCount.lua (Wrath 3.3.5a / Project Epoch)
 -- Tracks YOUR kills per NPC ID. Tooltip shows "Killed: #".
--- Commands: /mobcount [config|clear|debug|lock|restore]
+-- Commands: /mobcount [config|clear|debug|lock|restore|undo]
 
 local ADDON = "DWD_MobCount"
 
 -- SavedVariables
-DWD_MobCountDB      = DWD_MobCountDB      or {}  -- per-character bucket
-DWD_MobCountBackup  = DWD_MobCountBackup  or { _locks = {}, _meta = {} } -- account-wide backup
+DWD_MobCountDB       = DWD_MobCountDB       or {}  -- per-character bucket
+DWD_MobCountBackup   = DWD_MobCountBackup   or { _locks = {}, _meta = {} } -- account-wide rolling backup
+DWD_MobCountLastClear= DWD_MobCountLastClear or {} -- snapshot taken immediately before a clear
 
 -- ==== Per-character state ====
 local charKey, playerGUID, playerName
@@ -53,6 +54,17 @@ local function snapshotToBackup()
   b[charKey].namesById   = copyShallow(namesById)
   b[charKey].killsByName = copyShallow(killsByName)
   b._meta[charKey] = { t = (time and time() or 0), ver = 1 }
+end
+
+-- save a "last-clear" snapshot RIGHT BEFORE clearing
+local function snapshotLastClear()
+  if not charKey then return end
+  DWD_MobCountLastClear[charKey] = {
+    killsById   = copyShallow(killsById),
+    namesById   = copyShallow(namesById),
+    killsByName = copyShallow(killsByName),
+    t = (time and time() or 0),
+  }
 end
 
 -- ensure per-char tables exist (do NOT wipe)
@@ -154,7 +166,7 @@ local function TooltipUnit(tt)
   local _, unit = tt:GetUnit()
   if not unit or not UnitExists(unit) then return end
   if UnitIsPlayer(unit) then return end
-  if not UnitCanAttack("player", unit) then return end -- hide for own-faction/friendlies
+  if not UnitCanAttack("player", unit) then return end -- hide for friendlies/own faction
   local guid = UnitGUID(unit)
   if not (guid and isCreatureGUID(guid)) then return end
   local id = npcIdFromGUID(guid)
@@ -166,7 +178,7 @@ local function TooltipUnit(tt)
     local nm = UnitName(unit)
     cnt = killsByName[nm] or 0
   end
-  tt:AddLine("Killed: "..cnt, 1,1,1)
+  tt:AddLine("You've killed: "..cnt, 1,1,1)
   tt:Show()
 end
 
@@ -257,10 +269,13 @@ StaticPopupDialogs["DWDMOBCOUNT_CLEAR"] = {
       DEFAULT_CHAT_FRAME:AddMessage("|cffffff00MobCount:|r Clear blocked (locked). Use /mobcount lock to unlock.")
       return
     end
+    -- save last-clear snapshot BEFORE wiping
+    snapshotLastClear()
+    -- wipe live tables
     killsById, namesById, killsByName = {}, {}, {}
     DWD_MobCountDB[charKey] = { killsById = killsById, namesById = namesById, killsByName = killsByName }
-    snapshotToBackup() -- also wipe backup for this char
-    DEFAULT_CHAT_FRAME:AddMessage("|cffffff00MobCount:|r Cleared.")
+    snapshotToBackup() -- store the cleared state in rolling backup
+    DEFAULT_CHAT_FRAME:AddMessage("|cffffff00MobCount:|r Cleared. You can /mobcount undo to restore last clear.")
   end,
   timeout=0, whileDead=true, hideOnEscape=true, preferredIndex=3,
 }
@@ -293,7 +308,8 @@ local function ShowConfig()
   end
   for j=#arr+1, #rows do rows[j]:Hide() end
   parent:SetSize(480, math.max(360, (#arr)*18 + 6))
-  updateClearButtonState()
+  if cfgFrame and cfgFrame.clearBtn then cfgFrame.clearBtn:SetText(isLocked() and "Locked" or "Clear (This Character)") end
+  if isLocked() then cfgFrame.clearBtn:Disable() else cfgFrame.clearBtn:Enable() end
   cfgFrame:Show()
 end
 
@@ -308,22 +324,49 @@ local TAG_EVENTS = {
   DAMAGE_SHIELD=true, DAMAGE_SPLIT=true,
 }
 
+local function isCreatureGUID_hex(g)
+  if type(g) ~= "string" then return false end
+  local up = g:upper()
+  return up:find("^0X") and (up:find("^0XF130") or up:find("^0XF150") or up:find("^0XF530")) ~= nil
+end
+local function isCreatureGUID_dash(g)
+  if type(g) ~= "string" then return false end
+  return (g:find("^Creature%-") or g:find("^Vehicle%-")) ~= nil
+end
+local function npcIdFromGUID(g)
+  if type(g) ~= "string" then return nil end
+  if isCreatureGUID_hex(g)  then
+    local up = g:upper(); local s = up:sub(3); local hx = s:sub(7, 10)
+    if hx and hx:match("^[0-9A-F]+$") then local v = tonumber(hx, 16); if v and v>0 and v<1000000 then return v end end
+  elseif isCreatureGUID_dash(g) then
+    local id = g:match("-(%d+)-%x+$"); if id then return tonumber(id) end
+  end
+  return nil
+end
 local function isCreatureGUID(g) return isCreatureGUID_hex(g) or isCreatureGUID_dash(g) end
 
+-- Identify "mine" (GUID or name)
+local function isMineSource(srcGUID, srcName)
+  if srcGUID == playerGUID then return true end
+  if srcName and playerName and srcName == playerName then return true end
+  local pet = UnitGUID("pet");     if pet and srcGUID == pet then return true end
+  local veh = UnitGUID("vehicle"); if veh and srcGUID == veh then return true end
+  return false
+end
+
+-- Tooltip hook already defined above
+
+-- ==== Events ====
 local frame = CreateFrame("Frame")
-frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("PLAYER_LOGIN")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
-frame:RegisterEvent("PLAYER_LOGOUT")                -- just to snapshot
+frame:RegisterEvent("PLAYER_LOGOUT")                -- snapshot to disk on logout
 frame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 frame:RegisterEvent("COMBAT_TEXT_UPDATE")           -- KILLING_BLOW
 frame:RegisterEvent("CHAT_MSG_COMBAT_HOSTILE_DEATH")-- "X dies."
 
 frame:SetScript("OnEvent", function(self, event, ...)
-  if event == "ADDON_LOADED" then
-    -- noop
-
-  elseif event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
+  if event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
     local realm = GetRealmName() or "UnknownRealm"
     playerName   = UnitName("player") or "Unknown"
     charKey      = realm.."-"..playerName
@@ -331,7 +374,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
     ensureCharTables()
     maybeRestoreFromBackup()
     if event == "PLAYER_LOGIN" then
-      DEFAULT_CHAT_FRAME:AddMessage("|cffffff00MobCount:|r Loaded. /mobcount (config|clear|debug|lock|restore).")
+      DEFAULT_CHAT_FRAME:AddMessage("|cffffff00MobCount:|r Loaded. /mobcount (config|clear|debug|lock|restore|undo).")
     end
 
   elseif event == "PLAYER_LOGOUT" then
@@ -375,7 +418,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
     -- fallback: UNIT_DIED for recently tagged
     if subevent == "UNIT_DIED" and dstGUID and isCreatureGUID(dstGUID) then
       local t = taggedGUID[dstGUID]
-      if t and (GetTime() - t) <= TAG_TTL then
+      if t and (GetTime() - t) <= 20 then
         local now = GetTime()
         if not counted[dstGUID] or (now - counted[dstGUID]) > 2 then
           ensureCharTables()
@@ -404,7 +447,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
     if victim then
       local now = GetTime()
       local taggedAt = taggedName[victim]
-      if taggedAt and (now - taggedAt) <= TAG_TTL then
+      if taggedAt and (now - taggedAt) <= 20 then
         ensureCharTables()
         local id = recentIdForName(victim, 30)
         if id then creditKillById(id, victim) else creditKillByName(victim) end
@@ -417,6 +460,7 @@ end)
 -- ==== Slash commands ====
 SLASH_DWDMOBCOUNT1 = "/mobcount"
 SLASH_DWDMOBCOUNT2 = "/MobCount"
+SLASH_DWDMOBCOUNT3 = "/mc"
 SlashCmdList["DWDMOBCOUNT"] = function(msg)
   local m = trim(msg)
   if m == "" or m == "config" or m == "show" or m == "list" then
@@ -440,7 +484,20 @@ SlashCmdList["DWDMOBCOUNT"] = function(msg)
     maybeRestoreFromBackup()
     local after = (not tempty(killsById)) or (not tempty(killsByName))
     DEFAULT_CHAT_FRAME:AddMessage("|cffffff00MobCount:|r Restore "..((not before and after) and "applied." or "no backup found / not needed."))
+  elseif m == "undo" or m == "restoreclear" then
+    local snap = DWD_MobCountLastClear and DWD_MobCountLastClear[charKey]
+    if snap and ( (snap.killsById and not tempty(snap.killsById)) or (snap.killsByName and not tempty(snap.killsByName)) ) then
+      killsById   = copyShallow(snap.killsById   or {})
+      namesById   = copyShallow(snap.namesById   or {})
+      killsByName = copyShallow(snap.killsByName or {})
+      DWD_MobCountDB[charKey] = { killsById = killsById, namesById = namesById, killsByName = killsByName }
+      snapshotToBackup()
+      local when = snap.t and date and date("%Y-%m-%d %H:%M", snap.t) or "previous"
+      DEFAULT_CHAT_FRAME:AddMessage("|cffffff00MobCount:|r Restored from last clear ("..when..").")
+    else
+      DEFAULT_CHAT_FRAME:AddMessage("|cffffff00MobCount:|r No last-clear snapshot found.")
+    end
   else
-    DEFAULT_CHAT_FRAME:AddMessage("|cffffff00MobCount:|r /mobcount [config|clear|debug|lock|restore]")
+    DEFAULT_CHAT_FRAME:AddMessage("|cffffff00MobCount:|r /mobcount [config|clear|debug|lock|restore|undo]")
   end
 end
