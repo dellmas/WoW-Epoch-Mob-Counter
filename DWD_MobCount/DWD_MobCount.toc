@@ -1,11 +1,11 @@
 ## Interface: 30300
 ## Title: DWD MobCount
-## Notes: Simple mob kill counter display in tooltip.
+## Notes: Per-NPC kill counter with tooltip styling.
 ## Author: dellmas
-## Version: 0.3.0
+## Version: 0.5.0
 ## X-License: MIT
-## SavedVariables: DWD_MobCountBackup, DWD_MobCountLastClear
+## SavedVariables: DWD_MobCountBackup, DWD_MobCountLastClear, DWD_MobCountConfig
 ## SavedVariablesPerCharacter: DWD_MobCountDB
 
-Locales\enUS.lua
 DWD_MobCount.lua
+DWD_MobCount_ConfigUI.lua
