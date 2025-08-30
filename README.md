@@ -1,7 +1,14 @@
 # WoW-Epoch-Mob-Counter
-Simple mob kill counter display in tooltip. Coded for Project Epoch private server.
+Simple kill coounter that displays your kill count for the mob you're hovering over with some custimization. 
 
--- Commands: /mobcount [config|clear|debug]
+Commands:
+/dwdmc [list|config|clear|debug|lock|restore|undo]
+
+/dwdmc list displays a list of your kills.
+
+/dwdmc lock will lock the clear button from accidental clearing but /dwdmc restore should restore them.
+
+/dwdmc config bring up the config UI where you can change what wording is used and the color of the wording and count with an example showing it's appearance.
 
 <img width="191" height="176" alt="image" src="https://github.com/user-attachments/assets/c77dde65-89e0-49c4-a94b-229bdc970887" />
 
